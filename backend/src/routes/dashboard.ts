@@ -1,0 +1,7 @@
+import type { FastifyInstance } from "fastify";
+import { prisma } from "../db/prisma.js";
+
+export async function dashboardRoutes(app: FastifyInstance) {
+  app.get("/api/dashboard/metrics", async () => { const [open, recovered, cases, interventions, escalations] = await Promise.all([prisma.recoveryCase.findMany({ where: { status: { notIn: ["RECOVERED", "STOPPED"] } }, select: { payment: { select: { amount: true } } } }), prisma.recoveryCase.findMany({ where: { status: "RECOVERED" }, select: { recoveredAmount: true } }), prisma.recoveryCase.count(), prisma.recoveryAction.count({ where: { status: { in: ["SENT", "SUCCESS"] } } }), prisma.recoveryCase.count({ where: { status: "ESCALATED" } })]); const atRisk = open.reduce((sum, item) => sum + Number(item.payment.amount), 0); const recoveredRevenue = recovered.reduce((sum, item) => sum + Number(item.recoveredAmount ?? 0), 0); return { revenueAtRisk: atRisk, revenueRecovered: recoveredRevenue, recoveryRate: atRisk + recoveredRevenue ? recoveredRevenue / (atRisk + recoveredRevenue) : 0, casesEvaluated: cases, interventions, successfulRecoveries: recovered.length, escalations }; });
+  app.get("/api/dashboard/activity", async () => ({ activity: await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50, include: { case: { include: { payment: true, customer: true } } } }) }));
+}

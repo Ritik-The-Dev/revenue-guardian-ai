@@ -1,0 +1,159 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+
+enum CommunicationPreference { WHATSAPP EMAIL BOTH NONE }
+enum WebhookProcessingStatus { RECEIVED PROCESSED FAILED DUPLICATE }
+enum CaseStatus { NEW ANALYZING ACTION_PLANNED ACTION_EXECUTED WAITING_FOR_OUTCOME RETRY_PENDING RECOVERED ESCALATED STOPPED }
+enum RecoveryActionType { SEND_PAYMENT_LINK REQUEST_PAYMENT_METHOD_UPDATE SCHEDULE_RETRY SEND_REMINDER ESCALATE WAIT STOP }
+enum ActionStatus { PENDING EXECUTING SENT SUCCESS FAILED CANCELLED }
+
+model Customer {
+  id String @id @default(uuid()) @db.Uuid
+  externalCustomerId String? @unique
+  name String?
+  email String?
+  phone String?
+  lifetimeValue Decimal @default(0)
+  successfulPayments Int @default(0)
+  failedPayments Int @default(0)
+  lastSuccessfulPaymentAt DateTime?
+  communicationPreference CommunicationPreference @default(BOTH)
+  orders Order[]
+  payments Payment[]
+  cases RecoveryCase[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id String @id @default(uuid()) @db.Uuid
+  razorpayOrderId String @unique
+  customerId String? @db.Uuid
+  customer Customer? @relation(fields: [customerId], references: [id])
+  amount Decimal
+  currency String @default("INR")
+  status String @default("created")
+  payments Payment[]
+  cases RecoveryCase[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Payment {
+  id String @id @default(uuid()) @db.Uuid
+  razorpayPaymentId String @unique
+  razorpayOrderId String?
+  customerId String? @db.Uuid
+  customer Customer? @relation(fields: [customerId], references: [id])
+  order Order? @relation(fields: [razorpayOrderId], references: [razorpayOrderId])
+  amount Decimal
+  currency String @default("INR")
+  method String?
+  status String @default("failed")
+  errorCode String?
+  errorDescription String?
+  errorReason String?
+  cases RecoveryCase[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+  razorpayEventId String @unique
+  eventType String
+  payloadHash String
+  rawPayload Json
+  status WebhookProcessingStatus @default(RECEIVED)
+  receivedAt DateTime @default(now())
+  processedAt DateTime?
+  createdAt DateTime @default(now())
+}
+
+model RecoveryCase {
+  id String @id @default(uuid()) @db.Uuid
+  paymentId String @db.Uuid
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  orderId String? @db.Uuid
+  order Order? @relation(fields: [orderId], references: [id])
+  customerId String? @db.Uuid
+  customer Customer? @relation(fields: [customerId], references: [id])
+  status CaseStatus @default(NEW)
+  diagnosis String?
+  diagnosisConfidence Decimal?
+  recoverabilityProbability Decimal?
+  recoveryScore Decimal?
+  expectedRecoveryValue Decimal?
+  recommendedAction RecoveryActionType?
+  approvedAction RecoveryActionType?
+  channel String?
+  retryCount Int @default(0)
+  outreachCount Int @default(0)
+  nextActionAt DateTime?
+  recoveredAmount Decimal?
+  paymentLinkUrl String?
+  llmReason String?
+  policyDecision String?
+  policyReason String?
+  escalationReason String?
+  stopReason String?
+  actions RecoveryAction[]
+  auditLogs AuditLog[]
+  escalation Escalation?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RecoveryAction {
+  id String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+  case RecoveryCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  action RecoveryActionType
+  channel String?
+  status ActionStatus @default(PENDING)
+  providerMessageId String?
+  scheduledFor DateTime?
+  executedAt DateTime?
+  result Json?
+  error String?
+  createdAt DateTime @default(now())
+  @@unique([caseId, action])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  caseId String? @db.Uuid
+  case RecoveryCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  eventType String
+  decision String?
+  reason String?
+  metadata Json
+  createdAt DateTime @default(now())
+  @@index([caseId, createdAt])
+}
+
+model Escalation {
+  id String @id @default(uuid()) @db.Uuid
+  caseId String @unique @db.Uuid
+  case RecoveryCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  amount Decimal
+  customerSnapshot Json
+  failure String?
+  diagnosis String?
+  confidence Decimal?
+  previousActions Json
+  reason String
+  recommendedNextStep String?
+  createdAt DateTime @default(now())
+}
+
+model PolicySettings {
+  id String @id @default(uuid()) @db.Uuid
+  maxRetryAttempts Int @default(2)
+  maxOutreachAttempts Int @default(2)
+  cooldownHours Int @default(24)
+  minimumRecoveryValue Decimal @default(100)
+  highValueThreshold Decimal @default(25000)
+  lowConfidenceThreshold Decimal @default(0.60)
+  updatedAt DateTime @updatedAt
+}
