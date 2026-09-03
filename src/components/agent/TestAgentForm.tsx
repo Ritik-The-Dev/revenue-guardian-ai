@@ -16,7 +16,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Play } from "lucide-react";
+import { AlertTriangle, Play, CreditCard } from "lucide-react";
 
 import { ApiError, api, type TestAgentRunStarted } from "@/lib/api";
 import { formatINR } from "@/lib/format";
@@ -172,6 +172,48 @@ export function TestAgentForm({
       consent: form.consent,
     });
   };
+
+  const checkoutMutation = useMutation({
+    mutationFn: () =>
+      api.testAgent.createCheckoutOrder({
+        amount: toInt(form.amount, 1),
+        currency: "INR",
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+      }),
+    onSuccess: (order) => {
+      // Dynamically load the Razorpay Checkout script and open the modal
+      const load = () => {
+        const options = {
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          order_id: order.orderId,
+          name: "Revenue Guardian — Real Payment Test",
+          description: "Enter failure@razorpay as UPI ID to simulate a failure",
+          prefill: order.prefill,
+          theme: { color: "#1a1a1a" },
+          modal: { escape: true },
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      };
+
+      if ((window as Record<string, unknown>)["Razorpay"]) {
+        load();
+      } else {
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.onload = load;
+        document.body.appendChild(script);
+      }
+    },
+    onError: (err: unknown) => {
+      setFormError(err instanceof ApiError ? err.message : "Could not create Razorpay order. Check that Razorpay credentials are configured.");
+    },
+  });
 
   const highRisk = scenario === "high_risk";
   const amountValue = toInt(form.amount, 0);
@@ -384,6 +426,23 @@ export function TestAgentForm({
             {!mutation.isPending ? <Play className="size-3.5" aria-hidden /> : null}
             {mutation.isPending ? "Starting the agent…" : "Run the agent"}
           </PrimaryButton>
+          <button
+            type="button"
+            onClick={() => {
+              if (toInt(form.amount, 0) < 1) {
+                setFormError("Enter an amount before opening the Razorpay checkout.");
+                return;
+              }
+              setFormError(null);
+              checkoutMutation.mutate();
+            }}
+            disabled={checkoutMutation.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 h-9 text-[13px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-55 disabled:cursor-not-allowed"
+            title="Create a real Razorpay test order and open checkout. Use failure@razorpay as UPI ID to trigger a real payment.failed webhook."
+          >
+            <CreditCard className="size-3.5 shrink-0" aria-hidden />
+            {checkoutMutation.isPending ? "Creating order…" : "Open Razorpay Checkout"}
+          </button>
           <p
             className={cn(
               "text-[11.5px] leading-4 text-muted-foreground",

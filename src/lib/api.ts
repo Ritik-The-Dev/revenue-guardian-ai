@@ -377,6 +377,11 @@ export const api = {
       }),
     state: (paymentId: string) =>
       apiFetch<TestAgentRunState>(`/api/test-agent/run/${encodeURIComponent(paymentId)}`),
+    createCheckoutOrder: (data: { amount: number; currency?: string; name?: string; email?: string; phone?: string }) =>
+      apiFetch<{ orderId: string; amount: number; currency: string; keyId: string; prefill: { name: string; email: string; contact: string } }>(
+        "/api/test-agent/checkout-order",
+        { method: "POST", body: JSON.stringify(data) },
+      ),
   },
 };
 

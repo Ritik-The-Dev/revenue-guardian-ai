@@ -133,6 +133,15 @@ function TestAgentPage() {
   const start = (started: TestAgentRunStarted) => {
     setCurrent(started);
     setHistory((prev) => [started, ...prev.filter((r) => r.paymentId !== started.paymentId)].slice(0, 6));
+    // Scroll to top so the agent run panel is immediately visible.
+    // On desktop the run panel is in the right column (already in view if the
+    // user hasn't scrolled far). On mobile it stacks below the form, so
+    // scrolling to the top is the only reliable way to show it without the
+    // user hunting for the output.
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Also scroll the main content area in case it is independently scrollable
+    // (sidebar layout with overflow-auto on the right panel).
+    document.getElementById("main")?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (

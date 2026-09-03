@@ -283,6 +283,67 @@ export async function testAgentRoutes(app: FastifyInstance) {
   }));
 
   /**
+   * POST /api/test-agent/checkout-order
+   * Creates a real Razorpay test-mode Order so the frontend can open the
+   * Razorpay Checkout modal. The tester enters failure@razorpay (UPI) or a
+   * test card to trigger a payment.failed webhook which runs the real pipeline.
+   * This endpoint does NOT touch the recovery pipeline at all.
+   */
+  app.post("/api/test-agent/checkout-order", async (request, reply) => {
+    const schema = z.object({
+      amount: z.coerce.number().min(1).max(500_000),
+      currency: z.string().length(3).optional().default("INR"),
+      name: z.string().trim().max(80).optional().default(""),
+      email: z.string().trim().max(160).optional().default(""),
+      phone: z.string().trim().max(20).optional().default(""),
+    });
+
+    const parsed = schema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Invalid request", details: parsed.error.flatten() });
+    }
+
+    const { amount, currency, name, email, phone } = parsed.data;
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    if (!keyId || !keySecret) {
+      return reply.code(503).send({ error: "Razorpay credentials are not configured." });
+    }
+
+    // Create a Razorpay order — amount is in paise
+    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+    const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: Math.round(amount * 100),
+        currency,
+        receipt: `test_${Date.now().toString(36)}`,
+      }),
+    });
+
+    if (!rzpRes.ok) {
+      const err = await rzpRes.json().catch(() => ({})) as { error?: { description?: string } };
+      logEvent("CHECKOUT_ORDER_FAILED", { status: rzpRes.status });
+      return reply.code(502).send({
+        error: err?.error?.description ?? `Razorpay order creation failed (${rzpRes.status})`,
+      });
+    }
+
+    const order = await rzpRes.json() as { id: string; amount: number; currency: string };
+    logEvent("CHECKOUT_ORDER_CREATED", { orderId: order.id, amount: order.amount });
+
+    return reply.send({
+      orderId: order.id,
+      amount: order.amount,       // paise
+      currency: order.currency,
+      keyId,                       // publishable test key — safe to send to browser
+      prefill: { name, email, contact: phone },
+    });
+  });
+
+  /**
    * POST /api/test-agent/run
    * Validates operator input, enforces consent, then starts the real recovery
    * pipeline. Returns immediately with the identifiers needed to poll state.

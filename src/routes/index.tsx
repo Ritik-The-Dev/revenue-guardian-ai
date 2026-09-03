@@ -11,8 +11,8 @@
  */
 
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, FlaskConical, RefreshCw } from "lucide-react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { ArrowUpRight, FlaskConical, RefreshCw, CreditCard } from "lucide-react";
 
 import { AppLayout, PageBody, PageHeader } from "@/components/AppLayout";
 import {
@@ -152,6 +152,39 @@ function OverviewPage() {
     refetchInterval: 30_000,
   });
 
+  // ── Real Razorpay Checkout ───────────────────────────────────────────────
+  // Creates a real test-mode Razorpay order and opens the checkout modal.
+  // Use failure@razorpay as UPI ID → triggers a real payment.failed webhook
+  // → existing recovery pipeline runs automatically. No demo endpoint is called.
+  const checkoutMutation = useMutation({
+    mutationFn: () =>
+      api.testAgent.createCheckoutOrder({ amount: 4999, currency: "INR" }),
+    onSuccess: (order) => {
+      const open = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rzp = new (window as any).Razorpay({
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          order_id: order.orderId,
+          name: "Revenue Guardian — Real Failure Test",
+          description: "Enter failure@razorpay as UPI ID to trigger a real payment.failed webhook",
+          theme: { color: "#1a1a1a" },
+          modal: { escape: true },
+        });
+        rzp.open();
+      };
+      if ((window as Record<string, unknown>)["Razorpay"]) {
+        open();
+      } else {
+        const s = document.createElement("script");
+        s.src = "https://checkout.razorpay.com/v1/checkout.js";
+        s.onload = open;
+        document.body.appendChild(s);
+      }
+    },
+  });
+
   const metrics = metricsQuery.data;
   const loading = metricsQuery.isPending;
   const cases = casesQuery.data?.cases ?? [];
@@ -172,6 +205,15 @@ function OverviewPage() {
                 <RefreshCw className="size-3.5" aria-hidden />
               ) : null}
               Refresh
+            </SecondaryButton>
+            <SecondaryButton
+              size="sm"
+              onClick={() => checkoutMutation.mutate()}
+              loading={checkoutMutation.isPending}
+              title="Open real Razorpay checkout — enter failure@razorpay as UPI ID to trigger a real payment.failed webhook"
+            >
+              {!checkoutMutation.isPending ? <CreditCard className="size-3.5" aria-hidden /> : null}
+              {checkoutMutation.isPending ? "Creating order…" : "Real checkout"}
             </SecondaryButton>
             <Link
               to="/test-agent"
