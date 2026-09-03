@@ -4,10 +4,22 @@ import { supabase } from './client'
 
 // Must be registered as a global `functionMiddleware` in `src/start.ts`; otherwise
 // the browser never attaches the bearer token to serverFn RPCs.
+//
+// Reading `supabase.auth` builds the client on first touch, and that constructor
+// throws when the Supabase env vars are absent. This app currently defines no
+// server functions, so this middleware never runs — but if one is ever added,
+// an unconfigured deployment should send the request unauthenticated rather than
+// take down the whole call. Anything that genuinely requires a session must check
+// for one server-side regardless; a missing header is not an authorisation bypass.
 export const attachSupabaseAuth = createMiddleware({ type: 'function' }).client(
   async ({ next }) => {
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
+    let token: string | undefined
+    try {
+      const { data } = await supabase.auth.getSession()
+      token = data.session?.access_token
+    } catch (error) {
+      console.warn('[supabase] no session available; continuing without a bearer token', error)
+    }
     return next({
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })

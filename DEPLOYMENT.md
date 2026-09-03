@@ -346,6 +346,43 @@ rejects those at build time, before anything is deployed. Put it back to
 `0 3 * * *` and use the GitHub Actions workflow if you need retries to fire
 sooner than nightly (step 6).
 
+**The header says "Degraded — database is not responding" and every `/api` call
+returns 500, but `/api/system/status` answers fine.** The function is healthy and
+Prisma cannot open a connection, so `DATABASE_URL` is wrong. Check these three
+things in order, because all three have bitten this project:
+
+1. **Special characters in the password must be percent-encoded.** A password
+   like `Ritik@86309` contains a raw `@`, which is the delimiter between the
+   credentials and the host in a URI — the connection string silently parses
+   into a different host and authentication fails. Write it `Ritik%4086309`.
+   Also encode `:` as `%3A`, `/` as `%2F`, `?` as `%3F`, `#` as `%23`.
+2. **The port must be 6543**, not 5432, when the host is
+   `*.pooler.supabase.com`. 5432 on the pooler is session mode, which serverless
+   exhausts.
+3. **The query string must include `?pgbouncer=true&connection_limit=1`.**
+   Without `pgbouncer=true` Prisma issues prepared statements that transaction
+   mode cannot hold.
+
+A correct value looks like this, on one line:
+
+```
+postgresql://postgres.PROJECT_REF:PASSWORD_URL_ENCODED@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+```
+
+**Every panel shimmers for ten seconds before showing an error, and the network
+tab shows each request four times.** That was React Query's default of three
+retries with backoff. `src/router.tsx` now allows a single retry and only for a
+5xx or a request that never reached the server, so a genuine outage surfaces as
+an error state in about a second instead of a long fake loading state.
+
+**`/api/*` returns 500 from the *frontend's* own domain.** Check what
+`VITE_API_BASE_URL` was at build time. If it is missing, `src/lib/api.ts` falls
+back to `http://localhost:3000` and logs the variable by name to the console. It
+must never fall back to the dashboard's own origin: `/api/*` is not in the app's
+route tree, so the SSR server answers those requests with a 500 that is
+indistinguishable from a backend fault, and you will spend an afternoon
+debugging Prisma over a missing environment variable.
+
 **The build picks bun and resolves differently.** `vercel.json` pins
 `installCommand` to `npm install` in both projects. If you removed that, the
 `bun.lock` in the repository root will be preferred.

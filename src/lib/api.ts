@@ -19,8 +19,20 @@ const RAW_BASE = typeof env["VITE_API_BASE_URL"] === "string" ? env["VITE_API_BA
 const BASE_IS_FALLBACK = RAW_BASE.length === 0;
 const IS_PRODUCTION_BUILD = env["PROD"] === true;
 
-const BASE: string = BASE_IS_FALLBACK ? "https://revenue-guardian-ai.vercel.app" : RAW_BASE.replace(/\/+$/, "");
+// The fallback is the local dev backend, deliberately. It must never be the
+// dashboard's own origin: `/api/*` is not in this app's route tree, so those
+// requests would be answered by the SSR server with a 500 that looks exactly
+// like a backend fault, sending you to debug Prisma when the real problem is a
+// missing environment variable.
+const BASE: string = BASE_IS_FALLBACK ? "http://localhost:3000" : RAW_BASE.replace(/\/+$/, "");
 
+if (BASE_IS_FALLBACK && IS_PRODUCTION_BUILD) {
+  console.error(
+    "[config] VITE_API_BASE_URL was not set at build time, so this bundle is " +
+      "pointing at http://localhost:3000 and cannot reach the recovery service. " +
+      "Set it in the Vercel project and redeploy — it is baked in at build time.",
+  );
+}
 
 /**
  * An API failure the UI can show a person. `message` is always safe to render;
