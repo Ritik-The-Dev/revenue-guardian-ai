@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "buildCommand": "npm run vercel-build",
+  "installCommand": "npm install",
+  "builds": [
+    {
+      "src": "dist/vercel.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "dist/**",
+          "node_modules/.prisma/**",
+          "node_modules/@prisma/client/**",
+          "prisma/schema.prisma",
+          "prisma/migrations/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "dist/vercel.js"
+    }
+  ],
+  "functions": {
+    "dist/vercel.js": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  }
+}

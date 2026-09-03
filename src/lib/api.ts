@@ -5,7 +5,9 @@
 
 import { isOperatorText } from "./safeText";
 
-const BASE = "http://localhost:3000";
+// In Vite, VITE_* env vars are statically replaced at build time via import.meta.env
+// Fall back to localhost for local development.
+const BASE: string = (import.meta.env as Record<string, string | undefined>)["VITE_API_BASE_URL"] ?? "http://localhost:3000";
 
 /**
  * An API failure the UI can show a person. `message` is always safe to render;
