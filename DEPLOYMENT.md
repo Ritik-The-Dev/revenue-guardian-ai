@@ -188,31 +188,63 @@ behaviour and also the first thing to check if deliveries start failing.
 
 ## 6. Scheduled retries
 
+Only one part of the agent needs a clock: the delayed retry. When the policy
+engine decides a failed payment deserves another attempt later rather than an
+immediate message, it parks the case as `RETRY_PENDING` and stamps
+`nextActionAt` — by default thirty minutes out. Something has to come back and
+notice that the time has passed. Nothing else does: a webhook arriving, or a
+Test Agent run, completes diagnosis, policy, payment link and outreach
+synchronously inside the one request.
+
 Locally, `startRetryScheduler()` polls every thirty seconds. That cannot work on
 Vercel: the moment a function returns a response it is frozen, and any timer with
-it. So the same tick is driven from outside, by Vercel Cron calling
-`/api/cron/retry-tick` on the schedule in `backend/vercel.json`.
-
-The committed schedule is `0 3 * * *` — once a day at 03:00 UTC. That is
-deliberate: **Vercel's Hobby plan rejects any cron expression more frequent than
-daily at deploy time**, so a more useful schedule would make the project fail to
-deploy for most people. On a Pro plan, change it to something that matches how
-quickly you want retries to fire:
-
-```json
-"crons": [{ "path": "/api/cron/retry-tick", "schedule": "*/5 * * * *" }]
-```
-
-The endpoint requires `Authorization: Bearer $CRON_SECRET`, which Vercel Cron
-attaches automatically once `CRON_SECRET` is set. On a deployment where it is not
-set the endpoint returns 503 rather than leaving an unauthenticated trigger for
-real outreach exposed on the internet. You can also fire a tick by hand:
+it. So the same tick is driven from outside, over HTTP:
 
 ```bash
 curl -X POST https://<backend>.vercel.app/api/cron/retry-tick \
   -H "Authorization: Bearer $CRON_SECRET"
 # {"ok":true,"processed":0,"ranAt":"…"}
 ```
+
+The endpoint accepts `GET` and `POST` and requires
+`Authorization: Bearer $CRON_SECRET`. On a deployment where `CRON_SECRET` is not
+set it returns 503, rather than leaving an unauthenticated trigger for real
+outreach exposed on the internet. Because the reservation inside
+`processRetry` is atomic, calling it twice at once is harmless — which is what
+makes the endpoint safe to point several schedulers at.
+
+Anything that can make an authenticated HTTP request will do. Two are wired up:
+
+**Vercel Cron**, from the `crons` block in `backend/vercel.json`, which attaches
+the bearer token automatically. The committed schedule is `0 3 * * *` — once a
+day at 03:00 UTC — and that is a plan limit, not a preference. **Vercel's Hobby
+plan rejects any expression more frequent than daily at deploy time**, with
+`Hobby accounts are limited to daily cron jobs`, and Hobby scheduling is only
+accurate to the hour anyway. On Pro, change it and delete the workflow below:
+
+```json
+"crons": [{ "path": "/api/cron/retry-tick", "schedule": "*/5 * * * *" }]
+```
+
+**GitHub Actions**, in `.github/workflows/retry-tick.yml`, which runs every five
+minutes on any plan. It is inert until you add two repository secrets under
+Settings → Secrets and variables → Actions:
+
+| Secret | Value |
+|---|---|
+| `RETRY_TICK_URL` | `https://<backend>.vercel.app/api/cron/retry-tick` |
+| `CRON_SECRET` | The same value you set in the backend's Vercel environment |
+
+Without them every run exits successfully with a notice, so an unconfigured fork
+does not generate failure mail. Two honest caveats: GitHub queues scheduled
+workflows and may run them minutes late or skip them under load, and it disables
+schedules in a public repository after 60 days without a commit. Neither matters
+much here — a retry that fires at 34 minutes instead of 30 is still a retry — but
+it is why the daily Vercel cron is left in place as a backstop.
+
+On a Hobby plan with no external scheduler, retries still happen; they just wait
+for the nightly tick. Nothing is lost, because `nextActionAt` lives in the
+database and the query picks up everything already due.
 
 ---
 
@@ -308,6 +340,12 @@ redeploy. If requests are being made to the right host but blocked, the backend'
 `CORS_ALLOWED_ORIGINS` does not include the frontend's exact origin — scheme
 included, trailing slash excluded.
 
+**The deploy fails with `Hobby accounts are limited to daily cron jobs`.** The
+`schedule` in `backend/vercel.json` is more frequent than once a day. Hobby
+rejects those at build time, before anything is deployed. Put it back to
+`0 3 * * *` and use the GitHub Actions workflow if you need retries to fire
+sooner than nightly (step 6).
+
 **The build picks bun and resolves differently.** `vercel.json` pins
 `installCommand` to `npm install` in both projects. If you removed that, the
 `bun.lock` in the repository root will be preferred.
@@ -320,7 +358,8 @@ included, trailing slash excluded.
 |---|---|
 | `vercel.json` | Frontend project: `NITRO_PRESET=vercel`, npm pinned |
 | `.env.example` | Frontend variables, with the secrets that must never appear there named explicitly |
-| `backend/vercel.json` | Function config, catch-all rewrite, cron schedule |
+| `backend/vercel.json` | Function config, catch-all rewrite, daily cron schedule |
+| `.github/workflows/retry-tick.yml` | Optional five-minute retry tick, for plans where Vercel Cron cannot go sub-daily |
 | `backend/api/index.js` | Vercel's function entry; re-exports the compiled handler |
 | `backend/public/index.html` | Something honest at the API root instead of a directory listing |
 | `backend/tsconfig.build.json` | Build scope without `src/tests`, so the test suite is not bundled into the function |
