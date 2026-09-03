@@ -8,11 +8,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  // On Vercel this must be Supabase's *pooled* connection string
-  // (pgBouncer, port 6543, ?pgbouncer=true&connection_limit=1).
-  // Run migrations against the direct connection instead — see DEPLOYMENT.md.
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // DATABASE_URL must be Supabase's Transaction pooler (port 6543, pgbouncer=true)
+  // for serverless/Vercel. DIRECT_URL is the direct connection used only for migrations.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum CommunicationPreference {

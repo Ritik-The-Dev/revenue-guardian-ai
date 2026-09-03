@@ -4,7 +4,7 @@ const numberFromEnv = (fallback: number) => z.coerce.number().default(fallback);
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
-  baseUrl: process.env.APP_BASE_URL ?? "https://revenue-guardian-ai.vercel.app",
+  baseUrl: process.env.APP_BASE_URL ?? "http://localhost:3000",
   razorpayKeyId: process.env.RAZORPAY_KEY_ID,
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
