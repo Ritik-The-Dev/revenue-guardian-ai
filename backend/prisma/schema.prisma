@@ -1,9 +1,17 @@
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local development (Windows / macOS / your Linux box).
+  // "rhel-openssl-3.0.x" is the query engine the Vercel Node runtime needs
+  // (Amazon Linux 2023). Without it a deployed function throws
+  // "Query engine library for current platform could not be found" at runtime.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
+  // On Vercel this must be Supabase's *pooled* connection string
+  // (pgBouncer, port 6543, ?pgbouncer=true&connection_limit=1).
+  // Run migrations against the direct connection instead — see DEPLOYMENT.md.
   url      = env("DATABASE_URL")
 }
 

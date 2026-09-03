@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Revenue Guardian — API</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #fbfbfa;
+        color: #1c1b19;
+        font:
+          15px/1.6 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        max-width: 34rem;
+        padding: 2rem 1.5rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.0625rem;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 0 0 0.75rem;
+        color: #5d5a55;
+      }
+      code {
+        font:
+          13px ui-monospace,
+          "SFMono-Regular",
+          "Cascadia Mono",
+          monospace;
+        background: #f1efec;
+        border-radius: 4px;
+        padding: 0.1em 0.35em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Revenue Guardian API</h1>
+      <p>
+        This host serves the recovery agent's backend only. There is no interface here — the
+        dashboard is deployed separately.
+      </p>
+      <p>
+        Liveness: <code>/health</code>. Configuration readiness, as booleans with no key material:
+        <code>/api/system/status</code>.
+      </p>
+    </main>
+  </body>
+</html>

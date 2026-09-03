@@ -16,6 +16,9 @@ dist-ssr
 .nitro
 *.local
 
+# Vercel — local project link and build output
+.vercel/
+
 # Environment files — NEVER commit secrets
 .env
 .env.local

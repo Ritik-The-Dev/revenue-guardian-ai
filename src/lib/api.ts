@@ -5,9 +5,30 @@
 
 import { isOperatorText } from "./safeText";
 
-// In Vite, VITE_* env vars are statically replaced at build time via import.meta.env
-// Fall back to localhost for local development.
-const BASE: string = (import.meta.env as Record<string, string | undefined>)["VITE_API_BASE_URL"] ?? "http://localhost:3000";
+// In Vite, VITE_* env vars are statically replaced at build time via import.meta.env.
+//
+// Local development falls back to the dev backend on port 3000. A deployed build
+// has no such thing, so a production bundle that was built without
+// VITE_API_BASE_URL is broken — every request would be aimed at the visitor's own
+// machine. That is a silent, baffling failure, so it is named out loud below and
+// folded into the "can't reach the service" message the UI already shows.
+const env = import.meta.env as Record<string, unknown>;
+const RAW_BASE = typeof env["VITE_API_BASE_URL"] === "string" ? env["VITE_API_BASE_URL"].trim() : "";
+
+/** True when this bundle shipped without an API base URL and is guessing. */
+const BASE_IS_FALLBACK = RAW_BASE.length === 0;
+const IS_PRODUCTION_BUILD = env["PROD"] === true;
+
+const BASE: string = BASE_IS_FALLBACK ? "http://localhost:3000" : RAW_BASE.replace(/\/+$/, "");
+
+if (BASE_IS_FALLBACK && IS_PRODUCTION_BUILD) {
+  console.error(
+    "[config] VITE_API_BASE_URL was not set when this build was made, so API calls " +
+      "are pointed at http://localhost:3000 and will fail. Set it to the deployed " +
+      "backend URL in the Vercel project's environment variables and redeploy.",
+  );
+}
+
 
 /**
  * An API failure the UI can show a person. `message` is always safe to render;
@@ -27,7 +48,11 @@ export class ApiError extends Error {
 
 /** Turns any transport or backend failure into something safe to display. */
 function friendlyMessage(status: number): string {
-  if (status === 0) return "Can't reach the recovery service. Check that the backend is running.";
+  if (status === 0) {
+    return BASE_IS_FALLBACK && IS_PRODUCTION_BUILD
+      ? "This build has no backend address configured, so it can't reach the recovery service."
+      : "Can't reach the recovery service. Check that the backend is running.";
+  }
   if (status === 404) return "That record no longer exists.";
   if (status === 429) return "Too many requests. Wait a moment and try again.";
   if (status >= 500) return "The recovery service ran into a problem. Try again in a moment.";

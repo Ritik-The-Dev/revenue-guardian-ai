@@ -1,13 +1,42 @@
 /**
  * Demo endpoints for testing the full recovery pipeline without a real Razorpay webhook.
  * The payment.failed handler MUST use the exact same pipeline as the real webhook.
+ *
+ * Deployment note: these routes are unauthenticated, and because they run the
+ * real pipeline they create real Razorpay payment links and send real WhatsApp
+ * messages and email. `generate-batch` will do that up to 200 times in one
+ * request. On a public URL that is a loaded gun, so it can be switched off with
+ * `DEMO_ENDPOINTS_ENABLED=false` without touching anything else.
+ *
+ * The default is on, because the judge-facing demo needs it and turning it off
+ * silently would be worse than leaving it documented and visible.
  */
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { prisma } from "../db/prisma.js";
 import { runRecoveryPipeline } from "../services/recoveryPipeline.js";
 import { markPaymentRecovered } from "../services/recoveryVerificationService.js";
 import { audit } from "../services/auditService.js";
+import { logEvent } from "../utils/logger.js";
+
+/**
+ * Whether the endpoints that *execute* the pipeline are open.
+ * Read per request rather than at module load so a changed environment variable
+ * takes effect on the next invocation instead of the next cold start.
+ */
+function demoWritesEnabled(): boolean {
+  return process.env.DEMO_ENDPOINTS_ENABLED?.trim().toLowerCase() !== "false";
+}
+
+/** One message, written for an operator, safe to render in the UI. */
+function refuseDemoWrite(reply: FastifyReply): FastifyReply {
+  logEvent("DEMO_WRITE_REFUSED", {});
+  return reply.code(403).send({
+    error:
+      "Demo data generation is switched off on this deployment. Use the Test Agent page to run a single case, or set DEMO_ENDPOINTS_ENABLED=true.",
+  });
+}
+
 
 // ── Synthetic batch scenarios ─────────────────────────────────────────────────
 
@@ -84,6 +113,8 @@ export async function demoRoutes(app: FastifyInstance) {
    * Simulates a payment.failed event through the full recovery pipeline.
    */
   app.post("/api/demo/payment-failed", async (request, reply) => {
+    if (!demoWritesEnabled()) return refuseDemoWrite(reply);
+
     const body = request.body as {
       customer?: {
         name?: string;
@@ -134,6 +165,8 @@ export async function demoRoutes(app: FastifyInstance) {
    * Marks a payment as captured and triggers recovery verification.
    */
   app.post("/api/demo/payment-captured", async (request, reply) => {
+    if (!demoWritesEnabled()) return refuseDemoWrite(reply);
+
     const body = request.body as { paymentId: string; amount?: number };
     if (!body?.paymentId) {
       return reply.code(400).send({ error: "paymentId is required" });
@@ -142,7 +175,10 @@ export async function demoRoutes(app: FastifyInstance) {
       const result = await markPaymentRecovered(body.paymentId, body.amount);
       return reply.send({ ok: true, paymentId: body.paymentId, status: result.status });
     } catch (err) {
-      return reply.code(404).send({ error: String(err) });
+      // The caught error can carry a Prisma query or a provider payload, so it
+      // goes to the log and the caller gets a sentence instead.
+      logEvent("DEMO_CAPTURE_FAILED", { paymentId: body.paymentId, error: String(err) });
+      return reply.code(404).send({ error: "No payment with that id is being tracked." });
     }
   });
 
@@ -151,6 +187,8 @@ export async function demoRoutes(app: FastifyInstance) {
    * Generates ~100 synthetic failed payment cases through the real recovery pipeline.
    */
   app.post("/api/demo/generate-batch", async (request, reply) => {
+    if (!demoWritesEnabled()) return refuseDemoWrite(reply);
+
     const body = (request.body ?? {}) as { count?: number };
     const count = Math.min(Number(body?.count ?? 100), 200);
     const scenarios = buildBatch(count);
@@ -189,7 +227,13 @@ export async function demoRoutes(app: FastifyInstance) {
       }
     }
 
-    return reply.send({ ok: true, generated, failed, errors });
+    // The raw error strings stay in the platform log — they can contain Prisma
+    // queries and provider payloads. The caller gets counts only.
+    if (errors.length > 0) {
+      logEvent("DEMO_BATCH_ERRORS", { failed, sample: errors });
+    }
+
+    return reply.send({ ok: true, generated, failed });
   });
 
   /**

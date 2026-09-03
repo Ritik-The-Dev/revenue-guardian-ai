@@ -1,61 +1,59 @@
 /**
  * Vercel serverless entry point.
  *
- * Wraps the Fastify app as a Vercel serverless function.
- * Vercel calls the default export as a Node.js IncomingMessage handler.
+ * Vercel gives us a Node `IncomingMessage` / `ServerResponse` pair rather than
+ * a listening socket, so the Fastify instance is built once per cold start and
+ * requests are pushed into it directly. `app.ready()` must have resolved before
+ * the first request is emitted, otherwise Fastify has not finished building its
+ * router and the request 404s.
+ *
+ * Routes are *not* declared here — see `app.ts`. An earlier version of this file
+ * kept its own registration list, fell behind `server.ts`, and shipped a build
+ * where the entire Test Agent flow returned 404 in production.
+ *
+ * The retry scheduler is deliberately absent: a `setInterval` cannot outlive an
+ * invocation. Vercel Cron calls `/api/cron/retry-tick` instead.
  */
 
-import Fastify from "fastify";
-import type { FastifyRequest } from "fastify";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { razorpayWebhookRoute } from "./routes/razorpayWebhook.js";
-import { recoveryRoutes } from "./routes/recovery.js";
-import { dashboardRoutes } from "./routes/dashboard.js";
-import { demoRoutes } from "./routes/demo.js";
-import { settingsRoutes } from "./routes/settings.js";
-import { logEvent } from "./utils/logger.js";
+import type { FastifyInstance } from "fastify";
 
-declare module "fastify" {
-  interface FastifyRequest {
-    rawBodyBuffer?: Buffer;
+import { createApp } from "./app.js";
+
+/**
+ * Built once per cold start and reused by every warm invocation. Holding the
+ * promise (not the instance) means concurrent requests arriving during a cold
+ * start all await the same initialisation instead of racing to build their own.
+ */
+let appPromise: Promise<FastifyInstance> | undefined;
+
+async function getApp(): Promise<FastifyInstance> {
+  if (!appPromise) {
+    appPromise = (async () => {
+      const app = await createApp();
+      await app.ready();
+      return app;
+    })().catch((err: unknown) => {
+      // Do not cache a failed boot — the next invocation should try again.
+      appPromise = undefined;
+      throw err;
+    });
   }
+  return appPromise;
 }
 
-// Build the Fastify app once — Vercel reuses the same instance across warm invocations
-const app = Fastify({ logger: false });
-
-app.addContentTypeParser(
-  "application/json",
-  { parseAs: "buffer" },
-  (req: FastifyRequest, body: Buffer, done) => {
-    req.rawBodyBuffer = body;
-    try {
-      const parsed: unknown = JSON.parse(body.toString("utf8"));
-      done(null, parsed);
-    } catch (err) {
-      done(err as Error, undefined);
+export default async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const app = await getApp();
+    app.server.emit("request", req, res);
+  } catch (err) {
+    // A boot failure is almost always a missing environment variable. Log the
+    // detail for the platform log; return nothing revealing to the caller.
+    console.error("[vercel] failed to initialise the API", err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
     }
-  },
-);
-
-app.addHook("onRequest", async (_request, reply) => {
-  reply.header("Access-Control-Allow-Origin", "*");
-  reply.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-});
-app.options("*", async (_req, reply) => reply.code(200).send());
-app.get("/health", async () => ({ ok: true, service: "revenue-recovery-agent" }));
-
-await razorpayWebhookRoute(app);
-await recoveryRoutes(app);
-await dashboardRoutes(app);
-await demoRoutes(app);
-await settingsRoutes(app);
-
-// Ready the Fastify instance without binding to a port
-await app.ready();
-
-// Vercel invokes this as a standard Node.js HTTP handler
-export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  app.server.emit("request", req, res);
+    res.end(JSON.stringify({ error: "The recovery service is not available." }));
+  }
 }

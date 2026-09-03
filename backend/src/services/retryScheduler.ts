@@ -3,9 +3,17 @@
  * and executes them through the bounded recovery pipeline.
  *
  * Idempotency: uses DB action status (PENDING → EXECUTING → SUCCESS/FAILED/CANCELLED)
- * so two scheduler ticks cannot execute the same action simultaneously.
+ * so two scheduler ticks cannot execute the same action simultaneously. That
+ * guarantee lives in the database, not in this process, which is why the same
+ * function is safe to drive from a timer or from an HTTP request.
  *
- * No Redis, no Kafka. Simple Node setInterval is sufficient for the MVP.
+ * Two ways to run it:
+ *
+ *   - `startRetryScheduler()` — a Node setInterval, used by the long-running
+ *     local dev server. Sufficient for the MVP; no Redis, no Kafka.
+ *   - `processDueRetries()` — one tick, exported so a serverless deployment can
+ *     drive it from Vercel Cron via `POST /api/cron/retry-tick`. A setInterval
+ *     is useless on Vercel: the timer dies when the invocation returns.
  */
 
 import { prisma } from "../db/prisma.js";
@@ -28,7 +36,11 @@ export function startRetryScheduler(): NodeJS.Timeout {
   }, POLL_INTERVAL_MS);
 }
 
-async function processDueRetries() {
+/**
+ * Runs a single scheduler tick and reports how many cases it picked up.
+ * Safe to call concurrently — the reservation in `processRetry` is atomic.
+ */
+export async function processDueRetries(): Promise<{ processed: number }> {
   const now = new Date();
 
   // Find all cases due for retry
@@ -45,7 +57,7 @@ async function processDueRetries() {
     take: 50, // process at most 50 per tick to avoid overload
   });
 
-  if (dueCases.length === 0) return;
+  if (dueCases.length === 0) return { processed: 0 };
   logEvent("SCHEDULER_TICK", { dueCases: dueCases.length });
 
   for (const recoveryCase of dueCases) {
@@ -53,6 +65,8 @@ async function processDueRetries() {
       logEvent("SCHEDULER_CASE_ERROR", { caseId: recoveryCase.id, error: String(err) });
     });
   }
+
+  return { processed: dueCases.length };
 }
 
 async function processRetry(recoveryCase: Awaited<ReturnType<typeof prisma.recoveryCase.findMany>>[number]) {
