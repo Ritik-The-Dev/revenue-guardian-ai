@@ -7,12 +7,11 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
   tanstackStart: {
-    // SSR error wrapper entry point
+    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     server: { entry: "server" },
   },
-  // Nitro preset: "vercel" emits to .vercel/output — Vercel detects this automatically.
-  // On Lovable's own build infra, LOVABLE_NITRO_PRESET overrides this, so it is safe to commit.
-  nitro: {
-    preset: "vercel",
-  },
+  // Nitro preset is controlled by NITRO_PRESET env var at build time.
+  // Set NITRO_PRESET=vercel in the Vercel dashboard environment variables.
+  // Leave undefined here so Lovable's own preview builds continue to work.
+  nitro: true,
 });
