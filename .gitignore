@@ -32,6 +32,11 @@ rzp-key.csv
 *.p12
 secrets.json
 
+# Chrome partial downloads and other large temp files
+*.crdownload
+*.part
+*.tmp
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

@@ -7,6 +7,8 @@
       "src": "dist/vercel.js",
       "use": "@vercel/node",
       "config": {
+        "maxDuration": 30,
+        "memory": 1024,
         "includeFiles": [
           "dist/**",
           "node_modules/.prisma/**",
@@ -22,11 +24,5 @@
       "src": "/(.*)",
       "dest": "dist/vercel.js"
     }
-  ],
-  "functions": {
-    "dist/vercel.js": {
-      "memory": 1024,
-      "maxDuration": 30
-    }
-  }
+  ]
 }
