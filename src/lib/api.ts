@@ -19,15 +19,7 @@ const RAW_BASE = typeof env["VITE_API_BASE_URL"] === "string" ? env["VITE_API_BA
 const BASE_IS_FALLBACK = RAW_BASE.length === 0;
 const IS_PRODUCTION_BUILD = env["PROD"] === true;
 
-const BASE: string = BASE_IS_FALLBACK ? "http://localhost:3000" : RAW_BASE.replace(/\/+$/, "");
-
-if (BASE_IS_FALLBACK && IS_PRODUCTION_BUILD) {
-  console.error(
-    "[config] VITE_API_BASE_URL was not set when this build was made, so API calls " +
-      "are pointed at http://localhost:3000 and will fail. Set it to the deployed " +
-      "backend URL in the Vercel project's environment variables and redeploy.",
-  );
-}
+const BASE: string = BASE_IS_FALLBACK ? "https://revenue-guardian-ai.vercel.app" : RAW_BASE.replace(/\/+$/, "");
 
 
 /**
