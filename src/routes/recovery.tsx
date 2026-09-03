@@ -1,171 +1,296 @@
+/**
+ * Recovery Cases.
+ *
+ * The full ledger, filterable. Filters are read-only server-side queries — they
+ * narrow what is shown and never change a case.
+ *
+ * Origin is a first-class filter here rather than an afterthought, because a
+ * reviewer needs to be able to say "show me only real merchant traffic" and get
+ * exactly that.
+ */
+
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { AppLayout } from "../components/AppLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { api, formatINR, scoreLabel, statusColor, type RecoveryCase } from "../lib/api";
+import { FlaskConical, SlidersHorizontal } from "lucide-react";
+
+import { AppLayout, PageBody, PageHeader } from "@/components/AppLayout";
+import {
+  EmptyState,
+  ErrorState,
+  Panel,
+  PanelHeader,
+  StatusBadge,
+} from "@/components/Primitives";
+import { CaseTable, CaseTableSkeleton } from "@/components/CaseTable";
+import { SearchField, SecondaryButton, SelectField } from "@/components/FormKit";
+import { api } from "@/lib/api";
+import {
+  CASE_STATUS_ORDER,
+  DIAGNOSIS_ORDER,
+  caseStatus,
+  diagnosisLabel,
+  formatAmount,
+  ORIGIN_LABEL,
+} from "@/lib/format";
 
 export const Route = createFileRoute("/recovery")({
   component: RecoveryPage,
 });
 
-const STATUS_FILTERS = [
-  "ALL", "ANALYZING", "WAITING_FOR_OUTCOME", "RETRY_PENDING",
-  "RECOVERED", "ESCALATED", "STOPPED",
+const PAGE_SIZE = 25;
+
+const STATUS_OPTIONS = [
+  { value: "", label: "Any status" },
+  ...CASE_STATUS_ORDER.map((status) => ({
+    value: status,
+    label: caseStatus(status).label,
+  })),
 ];
 
-const CHANNEL_ICON: Record<string, string> = {
-  WHATSAPP: "📱",
-  EMAIL: "📧",
-  NONE: "—",
-};
+const DIAGNOSIS_OPTIONS = [
+  { value: "", label: "Any diagnosis" },
+  ...DIAGNOSIS_ORDER.map((value) => ({ value, label: diagnosisLabel(value).label })),
+];
+
+const ORIGIN_OPTIONS = [
+  { value: "", label: "Any origin" },
+  { value: "live", label: ORIGIN_LABEL.live.label },
+  { value: "test", label: ORIGIN_LABEL.test.label },
+  { value: "synthetic", label: ORIGIN_LABEL.synthetic.label },
+];
+
+const CHANNEL_OPTIONS = [
+  { value: "", label: "Any channel" },
+  { value: "WHATSAPP", label: "WhatsApp" },
+  { value: "EMAIL", label: "Email" },
+  { value: "NONE", label: "No outreach" },
+];
+
+interface Filters {
+  q: string;
+  status: string;
+  diagnosis: string;
+  source: string;
+  channel: string;
+}
+
+const NO_FILTERS: Filters = { q: "", status: "", diagnosis: "", source: "", channel: "" };
+
+/** Waits for typing to settle so each keystroke isn't a request. */
+function useDebounced(value: string, delayMs = 300): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
+}
 
 function RecoveryPage() {
-  const [status, setStatus] = useState("ALL");
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [page, setPage] = useState(1);
+  const debouncedQuery = useDebounced(filters.q);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["recovery-cases", status, page],
+  const active = useMemo(
+    () =>
+      (Object.keys(NO_FILTERS) as (keyof Filters)[]).filter((key) => filters[key] !== "").length,
+    [filters],
+  );
+
+  const set = <K extends keyof Filters>(key: K, value: Filters[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+    setPage(1);
+  };
+
+  const casesQuery = useQuery({
+    queryKey: [
+      "cases",
+      "list",
+      { ...filters, q: debouncedQuery, page },
+    ],
     queryFn: () =>
       api.recovery.list({
-        status: status === "ALL" ? undefined : status,
         page,
-        limit: 50,
+        limit: PAGE_SIZE,
+        ...(debouncedQuery ? { q: debouncedQuery } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.diagnosis ? { diagnosis: filters.diagnosis } : {}),
+        ...(filters.source ? { source: filters.source } : {}),
+        ...(filters.channel ? { channel: filters.channel } : {}),
       }),
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
+    placeholderData: (previous) => previous,
   });
 
-  const totalPages = data ? Math.ceil(data.total / 50) : 1;
+  const cases = casesQuery.data?.cases ?? [];
+  const total = casesQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstRow = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastRow = Math.min(page * PAGE_SIZE, total);
 
   return (
     <AppLayout>
-      <div className="p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Recovery Cases</h1>
-            <p className="text-sm text-muted-foreground">
-              {data?.total ?? 0} total cases
+      <PageHeader
+        title="Recovery cases"
+        description="Every failed payment the agent has opened a case for, newest activity first."
+        actions={
+          casesQuery.data ? (
+            <p className="text-[13px] text-muted-foreground">
+              <span className="tnum font-medium text-foreground">{formatAmount(total)}</span>{" "}
+              {total === 1 ? "case" : "cases"} match
             </p>
+          ) : null
+        }
+      />
+
+      <PageBody className="space-y-4">
+        <Panel>
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
+            <SearchField
+              label="Search cases by customer name, email or phone"
+              value={filters.q}
+              onChange={(value) => set("q", value)}
+              placeholder="Search name, email or phone"
+              className="w-full sm:w-64"
+            />
+            <SelectField
+              label="Filter by status"
+              labelHidden
+              value={filters.status}
+              onChange={(value) => set("status", value)}
+              options={STATUS_OPTIONS}
+              className="w-full min-[480px]:w-[calc(50%-0.25rem)] sm:w-44"
+            />
+            <SelectField
+              label="Filter by diagnosis"
+              labelHidden
+              value={filters.diagnosis}
+              onChange={(value) => set("diagnosis", value)}
+              options={DIAGNOSIS_OPTIONS}
+              className="w-full min-[480px]:w-[calc(50%-0.25rem)] sm:w-52"
+            />
+            <SelectField
+              label="Filter by origin of the failure event"
+              labelHidden
+              value={filters.source}
+              onChange={(value) => set("source", value)}
+              options={ORIGIN_OPTIONS}
+              className="w-full min-[480px]:w-[calc(50%-0.25rem)] sm:w-36"
+            />
+            <SelectField
+              label="Filter by outreach channel"
+              labelHidden
+              value={filters.channel}
+              onChange={(value) => set("channel", value)}
+              options={CHANNEL_OPTIONS}
+              className="w-full min-[480px]:w-[calc(50%-0.25rem)] sm:w-40"
+            />
+            {active > 0 ? (
+              <SecondaryButton
+                onClick={() => {
+                  setFilters(NO_FILTERS);
+                  setPage(1);
+                }}
+              >
+                Clear {active === 1 ? "filter" : `${active} filters`}
+              </SecondaryButton>
+            ) : null}
           </div>
-          <Link to="/">
-            <Button variant="outline" size="sm">← Dashboard</Button>
-          </Link>
-        </div>
 
-        {/* Status filter */}
-        <div className="flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((s) => (
-            <button
-              key={s}
-              onClick={() => { setStatus(s); setPage(1); }}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
-                status === s
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background text-muted-foreground border-border hover:border-primary"
-              }`}
-            >
-              {s.replace(/_/g, " ")}
-            </button>
-          ))}
-        </div>
+          {filters.source === "synthetic" ? (
+            <p className="border-t border-hairline bg-surface-2 px-4 py-2 text-[12px] text-muted-foreground sm:px-5">
+              Showing generated evaluation data only. These cases were never real merchant
+              payments.
+            </p>
+          ) : null}
+        </Panel>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">Cases</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0 overflow-x-auto">
-            {isLoading && (
-              <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
-            )}
-            {isError && (
-              <div className="py-12 text-center text-sm text-red-500">Failed to load cases. Is the backend running?</div>
-            )}
-            {!isLoading && !isError && (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-xs text-muted-foreground uppercase tracking-wide">
-                    <th className="text-left px-4 py-3 font-medium">Customer</th>
-                    <th className="text-right px-4 py-3 font-medium">Amount</th>
-                    <th className="text-left px-4 py-3 font-medium">Failure</th>
-                    <th className="text-left px-4 py-3 font-medium">Diagnosis</th>
-                    <th className="text-right px-4 py-3 font-medium">Score</th>
-                    <th className="text-right px-4 py-3 font-medium">ERV</th>
-                    <th className="text-left px-4 py-3 font-medium">Action</th>
-                    <th className="text-left px-4 py-3 font-medium">Ch.</th>
-                    <th className="text-left px-4 py-3 font-medium">Status</th>
-                    <th className="text-right px-4 py-3 font-medium">Recovered</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {data?.cases.length === 0 && (
-                    <tr>
-                      <td colSpan={11} className="text-center py-10 text-muted-foreground">
-                        No cases found. Run a batch simulation from the dashboard.
-                      </td>
-                    </tr>
-                  )}
-                  {data?.cases.map((c: RecoveryCase) => {
-                    const { label, color } = scoreLabel(Number(c.recoveryScore));
-                    return (
-                      <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{c.customer?.name ?? "Unknown"}</div>
-                          <div className="text-xs text-muted-foreground">{c.customer?.email ?? "—"}</div>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">{formatINR(Number(c.payment.amount))}</td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-30 truncate">
-                          {c.payment.errorReason ?? c.payment.errorCode ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-xs">{c.diagnosis?.replace(/_/g, " ") ?? "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <span className={`font-semibold text-xs ${color}`}>
-                            {c.recoveryScore != null ? `${Math.round(Number(c.recoveryScore))} ${label}` : "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{formatINR(Number(c.expectedRecoveryValue))}</td>
-                        <td className="px-4 py-3 text-xs">{c.approvedAction?.replace(/_/g, " ") ?? "—"}</td>
-                        <td className="px-4 py-3 text-center">{CHANNEL_ICON[c.channel ?? ""] ?? "—"}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(c.status)}`}>
-                            {c.status.replace(/_/g, " ")}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">
-                          {c.recoveredAmount != null ? formatINR(Number(c.recoveredAmount)) : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Link
-                            to="/recovery/$id"
-                            params={{ id: c.id }}
-                            className="text-xs text-primary hover:underline"
-                          >
-                            View →
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </CardContent>
-        </Card>
+        <Panel className="min-w-0">
+          <PanelHeader
+            title="Cases"
+            description={
+              total > 0
+                ? `Showing ${formatAmount(firstRow)}–${formatAmount(lastRow)} of ${formatAmount(total)}.`
+                : "Nothing matches the current filters."
+            }
+            action={
+              casesQuery.isFetching && !casesQuery.isPending ? (
+                <StatusBadge tone="idle">Refreshing</StatusBadge>
+              ) : null
+            }
+          />
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
-              Previous
-            </Button>
-            <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>
-              Next
-            </Button>
-          </div>
-        )}
-      </div>
+          {casesQuery.isPending ? (
+            <CaseTableSkeleton rows={8} />
+          ) : casesQuery.isError ? (
+            <ErrorState
+              title="Cases are unavailable"
+              description="The recovery service did not return the case list."
+              onRetry={() => void casesQuery.refetch()}
+            />
+          ) : cases.length === 0 ? (
+            active > 0 ? (
+              <EmptyState
+                icon={<SlidersHorizontal className="size-4" />}
+                title="No cases match these filters"
+                description="Widen the filters, or clear them to see every case."
+                action={
+                  <SecondaryButton
+                    onClick={() => {
+                      setFilters(NO_FILTERS);
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </SecondaryButton>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No recovery cases yet"
+                description="A case is opened the moment a payment fails. Run the Test Agent to put one through the full pipeline."
+                action={
+                  <Link
+                    to="/test-agent"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    <FlaskConical className="size-3.5" aria-hidden />
+                    Test the agent
+                  </Link>
+                }
+              />
+            )
+          ) : (
+            <CaseTable cases={cases} density="full" />
+          )}
+
+          {totalPages > 1 ? (
+            <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5 sm:px-5">
+              <p className="text-[12px] text-muted-foreground">
+                Page <span className="tnum font-medium text-foreground">{page}</span> of{" "}
+                <span className="tnum">{totalPages}</span>
+              </p>
+              <div className="flex gap-2">
+                <SecondaryButton
+                  size="sm"
+                  disabled={page === 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </SecondaryButton>
+                <SecondaryButton
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </SecondaryButton>
+              </div>
+            </div>
+          ) : null}
+        </Panel>
+      </PageBody>
     </AppLayout>
   );
 }

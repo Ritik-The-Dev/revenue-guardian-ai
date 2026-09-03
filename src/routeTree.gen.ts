@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as EscalationsRouteImport } from './routes/escalations'
 import { Route as RecoveryRouteImport } from './routes/recovery'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TestAgentRouteImport } from './routes/test-agent'
 import { Route as RecoveryIdRouteImport } from './routes/recovery.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +36,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TestAgentRoute = TestAgentRouteImport.update({
+  id: '/test-agent',
+  path: '/test-agent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RecoveryIdRoute = RecoveryIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/escalations': typeof EscalationsRoute
   '/recovery': typeof RecoveryRouteWithChildren
   '/settings': typeof SettingsRoute
+  '/test-agent': typeof TestAgentRoute
   '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/escalations': typeof EscalationsRoute
   '/recovery': typeof RecoveryRouteWithChildren
   '/settings': typeof SettingsRoute
+  '/test-agent': typeof TestAgentRoute
   '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRoutesById {
@@ -61,19 +69,33 @@ export interface FileRoutesById {
   '/escalations': typeof EscalationsRoute
   '/recovery': typeof RecoveryRouteWithChildren
   '/settings': typeof SettingsRoute
+  '/test-agent': typeof TestAgentRoute
   '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/escalations' | '/recovery' | '/settings' | '/recovery/$id'
+  fullPaths:
+    | '/'
+    | '/escalations'
+    | '/recovery'
+    | '/settings'
+    | '/test-agent'
+    | '/recovery/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/escalations' | '/recovery' | '/settings' | '/recovery/$id'
+  to:
+    | '/'
+    | '/escalations'
+    | '/recovery'
+    | '/settings'
+    | '/test-agent'
+    | '/recovery/$id'
   id:
     | '__root__'
     | '/'
     | '/escalations'
     | '/recovery'
     | '/settings'
+    | '/test-agent'
     | '/recovery/$id'
   fileRoutesById: FileRoutesById
 }
@@ -82,6 +104,7 @@ export interface RootRouteChildren {
   EscalationsRoute: typeof EscalationsRoute
   RecoveryRoute: typeof RecoveryRouteWithChildren
   SettingsRoute: typeof SettingsRoute
+  TestAgentRoute: typeof TestAgentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -114,6 +137,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/test-agent': {
+      id: '/test-agent'
+      path: '/test-agent'
+      fullPath: '/test-agent'
+      preLoaderRoute: typeof TestAgentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/recovery/$id': {
       id: '/recovery/$id'
       path: '/$id'
@@ -141,6 +171,7 @@ const rootRouteChildren: RootRouteChildren = {
   EscalationsRoute: EscalationsRoute,
   RecoveryRoute: RecoveryRouteWithChildren,
   SettingsRoute: SettingsRoute,
+  TestAgentRoute: TestAgentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

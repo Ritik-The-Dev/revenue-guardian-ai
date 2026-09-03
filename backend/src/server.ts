@@ -5,6 +5,8 @@ import { recoveryRoutes } from "./routes/recovery.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { demoRoutes } from "./routes/demo.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { testAgentRoutes } from "./routes/testAgent.js";
+import { systemRoutes } from "./routes/system.js";
 import { startRetryScheduler } from "./services/retryScheduler.js";
 import { config } from "./config.js";
 import { logEvent } from "./utils/logger.js";
@@ -51,6 +53,8 @@ await recoveryRoutes(app);
 await dashboardRoutes(app);
 await demoRoutes(app);
 await settingsRoutes(app);
+await testAgentRoutes(app);
+await systemRoutes(app);
 
 const address = await app.listen({ port: config.port, host: "0.0.0.0" });
 logEvent("SERVER_STARTED", { address, port: config.port });

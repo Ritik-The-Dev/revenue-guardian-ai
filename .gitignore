@@ -22,6 +22,16 @@ dist-ssr
 .env.*.local
 backend/.env
 
+# Local secret scratch — keys, tokens, exported credentials.
+# Anything you need to keep on disk but must never reach the remote goes here.
+.secrets/
+do_not_read_this.txt
+rzp-key.csv
+*-key.csv
+*.pem
+*.p12
+secrets.json
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

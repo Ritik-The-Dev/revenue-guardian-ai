@@ -1,140 +1,297 @@
+/**
+ * Escalations — the review queue.
+ *
+ * These are the cases the agent deliberately refused to handle on its own. The
+ * page is written for the person who has to pick one up: what failed, what the
+ * agent concluded, which rule stopped it, and how long it has been waiting.
+ *
+ * The list endpoint returns the case, its customer and its payment — so nothing
+ * here claims to know about prior actions, which are only loaded on the case
+ * itself.
+ */
+
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldAlert, StopCircle } from "lucide-react";
-import { AppLayout } from "../components/AppLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
-import { api, formatINR, statusColor } from "../lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ShieldCheck, StopCircle } from "lucide-react";
+
+import { AppLayout, PageBody, PageHeader } from "@/components/AppLayout";
+import {
+  EmptyState,
+  ErrorState,
+  Panel,
+  Shimmer,
+  StatusBadge,
+} from "@/components/Primitives";
+import { OriginTagFor } from "@/components/OriginTag";
+import { ConfirmBar } from "@/components/ConfirmBar";
+import { SecondaryButton } from "@/components/FormKit";
+import { api, ApiError, type RecoveryCase } from "@/lib/api";
+import { useNow } from "@/lib/useNow";
+import {
+  caseRef,
+  diagnosisLabel,
+  formatDuration,
+  formatINR,
+  formatRatio,
+} from "@/lib/format";
 
 export const Route = createFileRoute("/escalations")({
   component: EscalationsPage,
 });
 
+function EscalationCard({
+  item,
+  now,
+  onStop,
+  stopping,
+}: {
+  item: RecoveryCase;
+  /** Current instant, supplied by the page so every card agrees on it. */
+  now: number;
+  onStop: () => void;
+  stopping: boolean;
+}) {
+  const diagnosis = diagnosisLabel(item.diagnosis);
+
+  return (
+    <Panel className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-hairline px-4 py-3.5 sm:px-5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/recovery/$id"
+              params={{ id: item.id }}
+              className="text-[14px] font-medium text-foreground underline-offset-2 hover:underline"
+            >
+              {item.customer?.name ?? item.customer?.email ?? "Unnamed customer"}
+            </Link>
+            <OriginTagFor paymentId={item.payment.razorpayPaymentId} hideLive />
+            {item.diagnosis ? (
+              <StatusBadge tone={diagnosis.tone} title={diagnosis.hint}>
+                {diagnosis.label}
+              </StatusBadge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            <span className="mono">{caseRef(item.id)}</span>
+            <span aria-hidden> · </span>
+            waiting {formatDuration(now - new Date(item.updatedAt).getTime())}
+            {item.customer?.email ? (
+              <>
+                <span aria-hidden> · </span>
+                {item.customer.email}
+              </>
+            ) : null}
+          </p>
+        </div>
+        <p className="shrink-0 text-[17px] font-semibold tracking-[-0.01em] text-foreground">
+          {formatINR(item.payment.amount)}
+        </p>
+      </div>
+
+      <div className="space-y-3 px-4 py-3.5 sm:px-5">
+        {item.escalationReason ? (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              Why the agent stopped
+            </p>
+            <p className="mt-1 text-[13px] leading-5 text-foreground">{item.escalationReason}</p>
+          </div>
+        ) : item.policyReason ? (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              Policy decision on record
+            </p>
+            <p className="mt-1 text-[13px] leading-5 text-foreground">{item.policyReason}</p>
+          </div>
+        ) : null}
+
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-hairline pt-3 sm:grid-cols-4">
+          <div>
+            <dt className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Failure
+            </dt>
+            <dd className="mt-0.5 text-[12.5px] leading-4 text-foreground">
+              {item.payment.errorReason ?? item.payment.errorCode ?? "Not recorded"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Confidence
+            </dt>
+            <dd className="mt-0.5 text-[12.5px] leading-4 text-foreground">
+              {formatRatio(item.diagnosisConfidence)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Recovery score
+            </dt>
+            <dd className="mt-0.5 text-[12.5px] leading-4 text-foreground">
+              {item.recoveryScore != null ? `${Math.round(item.recoveryScore)}/100` : "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[10.5px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+              Contacted
+            </dt>
+            <dd className="mt-0.5 text-[12.5px] leading-4 text-foreground">
+              {item.outreachCount === 0
+                ? "Never"
+                : `${item.outreachCount} time${item.outreachCount === 1 ? "" : "s"}`}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="flex flex-wrap gap-2 pt-0.5">
+          <Link
+            to="/recovery/$id"
+            params={{ id: item.id }}
+            className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Open the case
+          </Link>
+          <SecondaryButton size="sm" tone="neg" onClick={onStop} loading={stopping}>
+            {!stopping ? <StopCircle className="size-3.5" aria-hidden /> : null}
+            Stop recovery
+          </SecondaryButton>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
 function EscalationsPage() {
   const qc = useQueryClient();
+  const now = useNow(30_000);
+  const [confirming, setConfirming] = useState<RecoveryCase | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["escalated-cases"],
+  const escalationsQuery = useQuery({
+    queryKey: ["escalations", "list"],
     queryFn: () => api.recovery.list({ status: "ESCALATED", limit: 100 }),
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
   });
 
   const stopMutation = useMutation({
-    mutationFn: (id: string) => api.recovery.stop(id, "Stopped by merchant after review"),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["escalated-cases"] }),
+    mutationFn: (id: string) => api.recovery.stop(id, "Stopped by the merchant after review"),
+    onSuccess: () => {
+      setConfirming(null);
+      setError(null);
+      void qc.invalidateQueries({ queryKey: ["escalations"] });
+      void qc.invalidateQueries({ queryKey: ["cases"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof ApiError ? err.message : "That case could not be stopped. Try again.");
+    },
   });
+
+  const cases = escalationsQuery.data?.cases ?? [];
+  const total = escalationsQuery.data?.total ?? 0;
+  const shownExposure = cases.reduce((sum, item) => sum + Number(item.payment.amount), 0);
 
   return (
     <AppLayout>
-      <div className="p-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <ShieldAlert className="h-6 w-6 text-red-500" />
-          <div>
-            <h1 className="text-2xl font-bold">Escalations</h1>
-            <p className="text-sm text-muted-foreground">
-              Cases requiring human review — no automatic action will be taken
-            </p>
+      <PageHeader
+        title="Escalations"
+        description="Cases the agent refused to handle automatically. It will send nothing further on these until a person decides."
+        actions={
+          cases.length > 0 ? (
+            <div className="text-right">
+              <p className="figure text-foreground">{formatINR(shownExposure)}</p>
+              <p className="text-[11.5px] text-muted-foreground">
+                outstanding across {cases.length} {cases.length === 1 ? "case" : "cases"}
+                {total > cases.length ? ` of ${total}` : ""}
+              </p>
+            </div>
+          ) : null
+        }
+      />
+
+      <PageBody className="space-y-4">
+        {confirming ? (
+          <ConfirmBar
+            title={`Stop recovery on ${confirming.customer?.name ?? caseRef(confirming.id)}?`}
+            body={
+              <>
+                The case closes with {formatINR(confirming.payment.amount)} unrecovered and drops
+                off this queue. The record stays intact. This cannot be undone from here.
+              </>
+            }
+            confirmLabel="Stop recovery"
+            cancelLabel="Leave it in the queue"
+            busy={stopMutation.isPending}
+            onConfirm={() => stopMutation.mutate(confirming.id)}
+            onCancel={() => setConfirming(null)}
+          />
+        ) : null}
+
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-lg border border-neg-line bg-neg-soft px-4 py-2.5 text-[13px] text-neg"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        {escalationsQuery.isPending ? (
+          <div className="space-y-4">
+            {[0, 1].map((i) => (
+              <Panel key={i} className="px-4 py-4 sm:px-5">
+                <Shimmer className="h-4 w-48" />
+                <Shimmer className="mt-3 h-3.5 w-full max-w-md" />
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {[0, 1, 2, 3].map((j) => (
+                    <Shimmer key={j} className="h-8" />
+                  ))}
+                </div>
+              </Panel>
+            ))}
           </div>
-        </div>
-
-        {isLoading && (
-          <div className="text-sm text-muted-foreground py-8 text-center">Loading escalated cases…</div>
-        )}
-        {isError && (
-          <div className="text-sm text-red-500 py-8 text-center">Failed to load. Is the backend running?</div>
-        )}
-
-        {!isLoading && !isError && data?.cases.length === 0 && (
-          <Card>
-            <CardContent className="py-12 text-center text-muted-foreground">
-              <ShieldAlert className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">No escalated cases</p>
-              <p className="text-sm mt-1">All cases are within automated recovery bounds.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {data?.cases.map((c) => (
-          <Card key={c.id} className="border-red-100">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="text-base">{c.customer?.name ?? "Unknown Customer"}</CardTitle>
-                  <p className="text-sm text-muted-foreground">{c.customer?.email ?? "—"}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(c.status)}`}>
-                    {c.status}
-                  </span>
-                  <span className="text-lg font-bold">{formatINR(Number(c.payment.amount))}</span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0 space-y-4">
-              {/* Escalation details */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">Failure</p>
-                  <p>{c.payment.errorReason ?? c.payment.errorCode ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">Diagnosis</p>
-                  <p>{c.diagnosis?.replace(/_/g, " ") ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">Confidence</p>
-                  <p>{c.diagnosisConfidence != null ? `${(Number(c.diagnosisConfidence) * 100).toFixed(0)}%` : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground font-medium">Prior Actions</p>
-                  <p>{c.actions?.length ?? 0}</p>
-                </div>
-              </div>
-
-              {c.escalationReason && (
-                <div className="rounded-md bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-800">
-                  <span className="font-medium">Escalation reason: </span>{c.escalationReason}
-                </div>
-              )}
-
-              {c.escalation?.recommendedNextStep && (
-                <div className="rounded-md bg-yellow-50 border border-yellow-100 px-3 py-2 text-sm text-yellow-800">
-                  <span className="font-medium">Recommended next step: </span>{c.escalation.recommendedNextStep}
-                </div>
-              )}
-
-              {/* Actions taken before escalation */}
-              {c.actions && c.actions.length > 0 && (
-                <div className="text-sm">
-                  <p className="text-xs text-muted-foreground font-medium mb-1.5">Prior actions</p>
-                  <div className="flex flex-wrap gap-2">
-                    {c.actions.map((a) => (
-                      <span key={a.id} className="text-xs px-2 py-0.5 rounded bg-muted">
-                        {a.action.replace(/_/g, " ")} — {a.status}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-1">
-                <Link to="/recovery/$id" params={{ id: c.id }}>
-                  <Button variant="outline" size="sm">View Full Details</Button>
-                </Link>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => stopMutation.mutate(c.id)}
-                  disabled={stopMutation.isPending}
-                  className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50"
+        ) : escalationsQuery.isError ? (
+          <Panel>
+            <ErrorState
+              title="Escalations are unavailable"
+              description="The recovery service did not return the escalation queue."
+              onRetry={() => void escalationsQuery.refetch()}
+            />
+          </Panel>
+        ) : cases.length === 0 ? (
+          <Panel>
+            <EmptyState
+              icon={<ShieldCheck className="size-4" />}
+              title="Nothing is waiting on a person"
+              description="Every case is inside the bounds the agent is allowed to act within. Escalations appear here the moment policy refuses to automate one."
+              action={
+                <Link
+                  to="/recovery"
+                  className="inline-flex h-8 items-center rounded-md border border-border bg-surface px-3 text-[13px] font-medium transition-colors hover:bg-accent"
                 >
-                  <StopCircle className="h-3.5 w-3.5" /> Stop Case
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                  View all cases
+                </Link>
+              }
+            />
+          </Panel>
+        ) : (
+          <div className="space-y-4">
+            {cases.map((item) => (
+              <EscalationCard
+                key={item.id}
+                item={item}
+                now={now}
+                onStop={() => {
+                  setError(null);
+                  setConfirming(item);
+                }}
+                stopping={stopMutation.isPending && confirming?.id === item.id}
+              />
+            ))}
+          </div>
+        )}
+      </PageBody>
     </AppLayout>
   );
 }

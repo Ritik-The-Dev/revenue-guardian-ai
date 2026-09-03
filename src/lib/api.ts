@@ -3,17 +3,79 @@
  * Never expose secrets; backend handles all provider calls.
  */
 
+import { isOperatorText } from "./safeText";
+
 const BASE = "http://localhost:3000";
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    ...options,
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`API ${res.status}: ${text}`);
+/**
+ * An API failure the UI can show a person. `message` is always safe to render;
+ * `fieldErrors` maps a form path (e.g. "customer.email") to a message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(status: number, message: string, fieldErrors: Record<string, string> = {}) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.fieldErrors = fieldErrors;
   }
+}
+
+/** Turns any transport or backend failure into something safe to display. */
+function friendlyMessage(status: number): string {
+  if (status === 0) return "Can't reach the recovery service. Check that the backend is running.";
+  if (status === 404) return "That record no longer exists.";
+  if (status === 429) return "Too many requests. Wait a moment and try again.";
+  if (status >= 500) return "The recovery service ran into a problem. Try again in a moment.";
+  return "That request could not be completed.";
+}
+
+/**
+ * Markers of a message that was written for a log file rather than a person:
+ * stack frames, transport codes, driver names, file paths, serialised objects,
+ * and anything shaped like a credential. A backend that stringifies a caught
+ * error (`String(err)`) will match one of these, and the generic line is used
+ * instead so provider internals never reach the screen.
+ *
+ * The predicate itself lives in `safeText`, which the UI shares for the same
+ * purpose on audit rows and recorded action errors.
+ */
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      ...options,
+    });
+  } catch {
+    throw new ApiError(0, friendlyMessage(0));
+  }
+
+  if (!res.ok) {
+    // Prefer the backend's own message when it wrote one for an operator, and
+    // only when it survives `isDisplayable`. Raw response bodies are never
+    // surfaced, so provider errors and stack traces cannot leak.
+    let message = friendlyMessage(res.status);
+    let fieldErrors: Record<string, string> = {};
+    try {
+      const body = (await res.json()) as {
+        error?: unknown;
+        fieldErrors?: Record<string, string>;
+      };
+      if (typeof body?.error === "string" && isOperatorText(body.error)) {
+        message = body.error.trim();
+      }
+      if (body?.fieldErrors && typeof body.fieldErrors === "object") {
+        fieldErrors = body.fieldErrors;
+      }
+    } catch {
+      // Non-JSON error body — keep the generic message.
+    }
+    throw new ApiError(res.status, message, fieldErrors);
+  }
+
   return res.json() as Promise<T>;
 }
 
@@ -137,6 +199,87 @@ export interface PolicySettings {
   lowConfidenceThreshold: number;
 }
 
+// ── System status ──────────────────────────────────────────────────────────
+// Booleans and mode labels only — the backend never sends key material here.
+
+export interface SystemStatus {
+  operational: boolean;
+  database: boolean;
+  integrations: {
+    razorpay: boolean;
+    ai: boolean;
+    aiFallbackAvailable: boolean;
+    whatsapp: boolean;
+    email: boolean;
+    webhookVerification: boolean;
+  };
+  razorpayMode: "test" | "live" | "not_configured";
+  limits: {
+    maxRetryAttempts: number;
+    maxOutreachAttempts: number;
+  };
+  checkedAt: string;
+}
+
+// ── Test Agent ─────────────────────────────────────────────────────────────
+
+export interface TestScenario {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface TestAgentRunRequest {
+  customer: {
+    name: string;
+    phone: string;
+    email: string;
+    isRepeatCustomer: boolean;
+    successfulPayments: number;
+    lifetimeValue: number;
+    failedPayments: number;
+  };
+  payment: {
+    amount: number;
+    scenario: string;
+    currency: string;
+  };
+  consent: boolean;
+}
+
+export interface TestAgentRunStarted {
+  ok: boolean;
+  paymentId: string;
+  orderId: string;
+  scenario: { id: string; label: string };
+  /** Masked for display — the backend holds the real contact details. */
+  contact: { whatsapp: string | null; email: string | null };
+}
+
+export interface TestAgentRunState {
+  paymentId: string;
+  orderId: string | null;
+  run: {
+    state: "RUNNING" | "COMPLETED" | "FAILED";
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+  };
+  case: RecoveryCase | null;
+}
+
+export interface CaseListFilters {
+  status?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
+  q?: string | undefined;
+  diagnosis?: string | undefined;
+  channel?: string | undefined;
+  source?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
+}
+
 // ── API calls ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -145,11 +288,17 @@ export const api = {
     activity: () => apiFetch<{ activity: ActivityItem[] }>("/api/dashboard/activity"),
   },
   recovery: {
-    list: (params?: { status?: string; page?: number; limit?: number }) => {
+    list: (params?: CaseListFilters) => {
       const qs = new URLSearchParams();
       if (params?.status) qs.set("status", params.status);
       if (params?.page) qs.set("page", String(params.page));
       if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.q) qs.set("q", params.q);
+      if (params?.diagnosis) qs.set("diagnosis", params.diagnosis);
+      if (params?.channel) qs.set("channel", params.channel);
+      if (params?.source) qs.set("source", params.source);
+      if (params?.from) qs.set("from", params.from);
+      if (params?.to) qs.set("to", params.to);
       return apiFetch<{ cases: RecoveryCase[]; total: number; page: number; limit: number }>(
         `/api/recovery/cases?${qs}`,
       );
@@ -175,48 +324,33 @@ export const api = {
     paymentFailed: (data: unknown) =>
       apiFetch("/api/demo/payment-failed", { method: "POST", body: JSON.stringify(data) }),
     paymentCaptured: (paymentId: string) =>
-      apiFetch("/api/demo/payment-captured", {
-        method: "POST",
-        body: JSON.stringify({ paymentId }),
-      }),
+      apiFetch<{ ok: boolean; paymentId: string; status: string }>(
+        "/api/demo/payment-captured",
+        { method: "POST", body: JSON.stringify({ paymentId }) },
+      ),
     generateBatch: (count = 100) =>
       apiFetch<{ ok: boolean; generated: number; failed: number }>(
         "/api/demo/generate-batch",
         { method: "POST", body: JSON.stringify({ count }) },
       ),
   },
+  system: {
+    status: () => apiFetch<SystemStatus>("/api/system/status"),
+  },
+  testAgent: {
+    scenarios: () => apiFetch<{ scenarios: TestScenario[] }>("/api/test-agent/scenarios"),
+    run: (data: TestAgentRunRequest) =>
+      apiFetch<TestAgentRunStarted>("/api/test-agent/run", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    state: (paymentId: string) =>
+      apiFetch<TestAgentRunState>(`/api/test-agent/run/${encodeURIComponent(paymentId)}`),
+  },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+// Presentation lives in lib/format.ts. Re-exported here so existing imports
+// from "@/lib/api" keep working.
 
-export function formatINR(amount: number | null | undefined) {
-  if (amount == null) return "—";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-export function scoreLabel(score: number | null | undefined) {
-  if (score == null) return { label: "—", color: "text-muted-foreground" };
-  if (score <= 30) return { label: "LOW", color: "text-red-500" };
-  if (score <= 60) return { label: "MEDIUM", color: "text-yellow-500" };
-  if (score <= 80) return { label: "HIGH", color: "text-blue-500" };
-  return { label: "CRITICAL", color: "text-green-600" };
-}
-
-export function statusColor(status: string) {
-  const map: Record<string, string> = {
-    RECOVERED: "bg-green-100 text-green-800",
-    ESCALATED: "bg-red-100 text-red-800",
-    STOPPED: "bg-gray-100 text-gray-600",
-    WAITING_FOR_OUTCOME: "bg-blue-100 text-blue-800",
-    ANALYZING: "bg-yellow-100 text-yellow-800",
-    RETRY_PENDING: "bg-purple-100 text-purple-800",
-    NEW: "bg-slate-100 text-slate-700",
-    ACTION_PLANNED: "bg-indigo-100 text-indigo-800",
-    ACTION_EXECUTED: "bg-teal-100 text-teal-800",
-  };
-  return map[status] ?? "bg-gray-100 text-gray-600";
-}
+export { formatINR } from "./format";
