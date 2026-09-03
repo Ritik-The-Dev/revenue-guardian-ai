@@ -55,7 +55,9 @@ export interface RecoveryCase {
   retryCount: number;
   outreachCount: number;
   recoveredAmount: number | null;
+  amountDue: number | null;
   paymentLinkUrl: string | null;
+  razorpayPaymentLinkId: string | null;
   llmReason: string | null;
   policyDecision: string | null;
   policyReason: string | null;

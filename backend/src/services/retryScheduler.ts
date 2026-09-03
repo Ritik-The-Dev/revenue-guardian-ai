@@ -199,7 +199,9 @@ async function processRetry(recoveryCase: Awaited<ReturnType<typeof prisma.recov
   const orderId = payment.razorpayOrderId ?? freshCase.id;
   const amount = Number(payment.amount);
   const currency = payment.currency;
-  const safeMessage = `Dear ${name},\n\nWe noticed your payment of ${currency} ${amount.toLocaleString("en-IN")} for order ${orderId} is still pending. Please complete your payment at your earliest convenience.`;
+  const FALLBACK_LINK = "https://rzp.io/rzp/T45RR6DJ";
+  const effectiveLink = paymentLinkUrl ?? FALLBACK_LINK;
+  const safeMessage = `Dear ${name},\n\nWe noticed your payment of ${currency} ${amount.toLocaleString("en-IN")} for order ${orderId} is still pending. Please complete your payment at your earliest convenience.\n\nComplete your payment here: ${effectiveLink}`;
 
   await routeNotification(freshCase.id, freshCase.channel, safeMessage, paymentLinkUrl);
 

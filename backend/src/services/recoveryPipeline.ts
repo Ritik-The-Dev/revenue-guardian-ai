@@ -391,7 +391,7 @@ export async function runRecoveryPipeline(input: FailedPaymentInput) {
   return updatedCase;
 }
 
-/** Inject authoritative values; strip any LLM-invented amounts/links */
+/** Inject authoritative values; always include a payment link. */
 function buildSafeCustomerMessage(
   llmMessage: string,
   customerName: string | null | undefined,
@@ -400,12 +400,36 @@ function buildSafeCustomerMessage(
   currency: string,
   paymentLink: string | null,
 ): string {
+  // Always send a link — use the real one if available, else the fallback demo link
+  const FALLBACK_LINK = "https://rzp.io/rzp/T45RR6DJ";
+  const effectiveLink = paymentLink ?? FALLBACK_LINK;
+
   const greeting = customerName ? `Dear ${customerName},` : "Dear Customer,";
   const amountStr = `${currency} ${amount.toLocaleString("en-IN")}`;
-  const linkLine = paymentLink ? `\nComplete your payment here: ${paymentLink}` : "";
-  // Use LLM message as the body but inject authoritative values
-  const body = llmMessage.trim() || "Your payment could not be processed. Please complete your payment at your earliest convenience.";
-  return `${greeting}\n\n${body}\n\nOrder ID: ${orderId}\nAmount: ${amountStr}${linkLine}`;
+
+  let body = llmMessage.trim() || "Your payment could not be processed. Please use the link below to complete your payment.";
+
+  // Replace LLM placeholder patterns with the real link
+  body = body
+    .replace(/\{\{payment_link\}\}/gi, effectiveLink)
+    .replace(/\{\{paymentLink\}\}/gi, effectiveLink)
+    .replace(/\[payment link\]/gi, effectiveLink)
+    .replace(/\[link\]/gi, effectiveLink);
+
+  // If LLM says "link we've shared" but no real URL appears in body yet,
+  // the actual link will be appended below — so just clean the phrasing
+  if (!body.includes("rzp.io") && !body.includes("http")) {
+    body = body
+      .replace(/using the payment link we.ve shared\.?/gi, "using the link below")
+      .replace(/via the payment link\.?/gi, "via the link below")
+      .replace(/through the payment link\.?/gi, "through the link below")
+      .trim();
+    if (!body) {
+      body = "Your payment could not be processed. Please use the link below to complete your payment.";
+    }
+  }
+
+  return `${greeting}\n\n${body}\n\nOrder ID: ${orderId}\nAmount: ${amountStr}\nComplete your payment here: ${effectiveLink}`;
 }
 
 async function createEscalation(
