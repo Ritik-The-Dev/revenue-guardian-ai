@@ -10,33 +10,78 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as EscalationsRouteImport } from './routes/escalations'
+import { Route as RecoveryRouteImport } from './routes/recovery'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as RecoveryIdRouteImport } from './routes/recovery.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EscalationsRoute = EscalationsRouteImport.update({
+  id: '/escalations',
+  path: '/escalations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RecoveryRoute = RecoveryRouteImport.update({
+  id: '/recovery',
+  path: '/recovery',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RecoveryIdRoute = RecoveryIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => RecoveryRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/escalations': typeof EscalationsRoute
+  '/recovery': typeof RecoveryRouteWithChildren
+  '/settings': typeof SettingsRoute
+  '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/escalations': typeof EscalationsRoute
+  '/recovery': typeof RecoveryRouteWithChildren
+  '/settings': typeof SettingsRoute
+  '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/escalations': typeof EscalationsRoute
+  '/recovery': typeof RecoveryRouteWithChildren
+  '/settings': typeof SettingsRoute
+  '/recovery/$id': typeof RecoveryIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/escalations' | '/recovery' | '/settings' | '/recovery/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/escalations' | '/recovery' | '/settings' | '/recovery/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/escalations'
+    | '/recovery'
+    | '/settings'
+    | '/recovery/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EscalationsRoute: typeof EscalationsRoute
+  RecoveryRoute: typeof RecoveryRouteWithChildren
+  SettingsRoute: typeof SettingsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +93,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/escalations': {
+      id: '/escalations'
+      path: '/escalations'
+      fullPath: '/escalations'
+      preLoaderRoute: typeof EscalationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/recovery': {
+      id: '/recovery'
+      path: '/recovery'
+      fullPath: '/recovery'
+      preLoaderRoute: typeof RecoveryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/recovery/$id': {
+      id: '/recovery/$id'
+      path: '/$id'
+      fullPath: '/recovery/$id'
+      preLoaderRoute: typeof RecoveryIdRouteImport
+      parentRoute: typeof RecoveryRoute
+    }
   }
 }
 
+interface RecoveryRouteChildren {
+  RecoveryIdRoute: typeof RecoveryIdRoute
+}
+
+const RecoveryRouteChildren: RecoveryRouteChildren = {
+  RecoveryIdRoute: RecoveryIdRoute,
+}
+
+const RecoveryRouteWithChildren = RecoveryRoute._addFileChildren(
+  RecoveryRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EscalationsRoute: EscalationsRoute,
+  RecoveryRoute: RecoveryRouteWithChildren,
+  SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

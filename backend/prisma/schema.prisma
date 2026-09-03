@@ -1,11 +1,56 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
 
-enum CommunicationPreference { WHATSAPP EMAIL BOTH NONE }
-enum WebhookProcessingStatus { RECEIVED PROCESSED FAILED DUPLICATE }
-enum CaseStatus { NEW ANALYZING ACTION_PLANNED ACTION_EXECUTED WAITING_FOR_OUTCOME RETRY_PENDING RECOVERED ESCALATED STOPPED }
-enum RecoveryActionType { SEND_PAYMENT_LINK REQUEST_PAYMENT_METHOD_UPDATE SCHEDULE_RETRY SEND_REMINDER ESCALATE WAIT STOP }
-enum ActionStatus { PENDING EXECUTING SENT SUCCESS FAILED CANCELLED }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CommunicationPreference {
+  WHATSAPP
+  EMAIL
+  BOTH
+  NONE
+}
+
+enum WebhookProcessingStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
+enum CaseStatus {
+  NEW
+  ANALYZING
+  ACTION_PLANNED
+  ACTION_EXECUTED
+  WAITING_FOR_OUTCOME
+  RETRY_PENDING
+  RECOVERED
+  ESCALATED
+  STOPPED
+}
+
+enum RecoveryActionType {
+  SEND_PAYMENT_LINK
+  REQUEST_PAYMENT_METHOD_UPDATE
+  SCHEDULE_RETRY
+  SEND_REMINDER
+  ESCALATE
+  WAIT
+  STOP
+}
+
+enum ActionStatus {
+  PENDING
+  EXECUTING
+  SENT
+  SUCCESS
+  FAILED
+  CANCELLED
+}
 
 model Customer {
   id String @id @default(uuid()) @db.Uuid
@@ -91,7 +136,9 @@ model RecoveryCase {
   outreachCount Int @default(0)
   nextActionAt DateTime?
   recoveredAmount Decimal?
+  amountDue Decimal?
   paymentLinkUrl String?
+  razorpayPaymentLinkId String?
   llmReason String?
   policyDecision String?
   policyReason String?
@@ -117,6 +164,7 @@ model RecoveryAction {
   result Json?
   error String?
   createdAt DateTime @default(now())
+
   @@unique([caseId, action])
 }
 
@@ -129,6 +177,7 @@ model AuditLog {
   reason String?
   metadata Json
   createdAt DateTime @default(now())
+
   @@index([caseId, createdAt])
 }
 

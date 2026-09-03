@@ -1,0 +1,66 @@
+/**
+ * Outbound WhatsApp Cloud API sender.
+ * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
+ */
+export async function sendWhatsAppText(toPhone: string, body: string): Promise<{ id?: string; ok: boolean; error?: string }> {
+  console.log("Sending WhatsApp text to", toPhone);
+  console.log("Message body:", body);
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  if (!token || !phoneId) {
+    console.warn("[whatsapp] missing credentials, skipping send");
+    return { ok: false, error: "missing_credentials" };
+  }
+
+  const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to: toPhone,
+      type: "text",
+      text: { body, preview_url: false },
+    }),
+  });
+
+  const json = (await res.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string } };
+  if (!res.ok) {
+    
+    console.error("[whatsapp] send failed", res.status, json);
+    return { ok: false, error: json?.error?.message ?? `http_${res.status}` };
+  }
+  return { ok: true, id: json.messages?.[0]?.id };
+}
+
+
+SUPABASE_PROJECT_ID="ctaiuinvtgiltxgfrbna"
+
+SUPABASE_PUBLISHABLE_KEY="sb_publishable_qI3zuuUYkFsZyoDIHjBLAg_NBcYPUMg"
+
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0YWl1aW52dGdpbHR4Z2ZyYm5hIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDgzODc2MCwiZXhwIjoyMDk2NDE0NzYwfQ.IRUDfVGCpdZNWuRBufgsd40nkJjsDCZe_dMHZrIRBuE"
+
+SUPABASE_URL="https://ctaiuinvtgiltxgfrbna.supabase.co"
+
+VITE_SUPABASE_PROJECT_ID="ctaiuinvtgiltxgfrbna"
+
+VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_qI3zuuUYkFsZyoDIHjBLAg_NBcYPUMg"
+
+VITE_SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0YWl1aW52dGdpbHR4Z2ZyYm5hIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDgzODc2MCwiZXhwIjoyMDk2NDE0NzYwfQ.IRUDfVGCpdZNWuRBufgsd40nkJjsDCZe_dMHZrIRBuE"
+
+VITE_SUPABASE_URL="https://ctaiuinvtgiltxgfrbna.supabase.co"
+
+
+
+WHATSAPP_ACCESS_TOKEN="EAAMGMnZAnEhoBRsL7ftsgKaerU41wg9xndpVAkc1nh3VaBZCbjbfpgkkIP7eGUZC5hFAA6j7UdfBxjyLXWSrxYu8ZAl2AAcBYQPIMh531JFav9CpYZBR9sHYF0CYmPM0PTPNmKtiSW8uCB3XZBEadyWKh5QqkknmzQkQLvnVJqerqnZAZCJrAi67pG7UvKZA0RgZDZD"
+WHATSAPP_APP_SECRET="50d0e5f34530a57ef99d6475dfae7a90"
+WHATSAPP_PHONE_NUMBER_ID="1171224002740985"
+WHATSAPP_VERIFY_TOKEN="smartbizverify"
+POLLINATIONS_API_KEY="sk_Jp9S2kIw9bFfq5ANd7LKIvGi1FzcLCYu"
+
+
+175$ => sk-DNuotH56pgxQ9o6hIvLdHzrM0TZHVKTIOUN8t8wL0tWRW2E0
+25$  => sk-1iZkqG9AuD4YIGF1xeZd8Ddz0ksSUFge14m6EpbjG3eU2gGa
+25%  => sk-EmnvmIWKk4rcMvFH8QSNTohwaA43l7bddtmzKTc2sJgDpRtA

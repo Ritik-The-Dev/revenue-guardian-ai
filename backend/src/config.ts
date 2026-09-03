@@ -8,8 +8,8 @@ export const config = {
   razorpayKeyId: process.env.RAZORPAY_KEY_ID,
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET,
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET,
-  openAiKey: process.env.OPENAI_API_KEY,
-  openAiModel: process.env.OPENAI_MODEL ?? "openai/gpt-5.6-sol",
+  pollinationsApiKey: process.env.POLLINATIONS_API_KEY,
+  pollinationsModel: process.env.POLLINATIONS_MODEL ?? "openai",
   limits: {
     maxRetryAttempts: numberFromEnv(2).parse(process.env.MAX_RETRY_ATTEMPTS),
     maxOutreachAttempts: numberFromEnv(2).parse(process.env.MAX_OUTREACH_ATTEMPTS),
