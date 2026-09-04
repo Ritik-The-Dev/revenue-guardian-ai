@@ -23,8 +23,9 @@ import {
   StatusBadge,
 } from "@/components/Primitives";
 import { CaseTable, CaseTableSkeleton } from "@/components/CaseTable";
+import { RecoveryDrawer } from "@/components/RecoveryDrawer";
 import { SearchField, SecondaryButton, SelectField } from "@/components/FormKit";
-import { api } from "@/lib/api";
+import { api, type RecoveryCase } from "@/lib/api";
 import {
   CASE_STATUS_ORDER,
   DIAGNOSIS_ORDER,
@@ -91,6 +92,7 @@ function RecoveryPage() {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [page, setPage] = useState(1);
   const debouncedQuery = useDebounced(filters.q);
+  const [selected, setSelected] = useState<RecoveryCase | null>(null);
 
   const active = useMemo(
     () =>
@@ -262,7 +264,7 @@ function RecoveryPage() {
               />
             )
           ) : (
-            <CaseTable cases={cases} density="full" />
+            <CaseTable cases={cases} density="full" onSelect={setSelected} />
           )}
 
           {totalPages > 1 ? (
@@ -291,6 +293,8 @@ function RecoveryPage() {
           ) : null}
         </Panel>
       </PageBody>
+
+      <RecoveryDrawer selected={selected} onClose={() => setSelected(null)} />
     </AppLayout>
   );
 }

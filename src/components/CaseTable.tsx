@@ -39,10 +39,12 @@ export function CaseTable({
   cases,
   density = "full",
   className,
+  onSelect,
 }: {
   cases: RecoveryCase[];
   density?: CaseTableDensity;
   className?: string;
+  onSelect?: (item: RecoveryCase) => void;
 }) {
   const full = density === "full";
 
@@ -87,7 +89,11 @@ export function CaseTable({
               return (
                 <tr
                   key={item.id}
-                  className="border-b border-hairline transition-colors last:border-0 hover:bg-accent/45"
+                  onClick={onSelect ? () => onSelect(item) : undefined}
+                  className={cn(
+                    "border-b border-hairline transition-colors last:border-0 hover:bg-accent/45",
+                    onSelect && "cursor-pointer",
+                  )}
                 >
                   <td className={cn(TD, "min-w-0")}>
                     <div className="flex items-center gap-2">
@@ -167,7 +173,11 @@ export function CaseTable({
         {cases.map((item) => {
           const status = caseStatus(item.status);
           return (
-            <li key={item.id} className="px-4 py-3">
+            <li
+              key={item.id}
+              onClick={onSelect ? () => onSelect(item) : undefined}
+              className={cn("px-4 py-3", onSelect && "cursor-pointer hover:bg-accent/45 transition-colors")}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
